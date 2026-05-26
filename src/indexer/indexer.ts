@@ -3,6 +3,7 @@ import { prisma } from '../db';
 import { config } from '../config';
 import { fetchEvents, getLatestLedger, getRpcWebsocketUrl, getTransaction } from './rpc';
 import { decodeTransaction, decodeEvent } from './decoder';
+import { enqueueFailure } from './errorQueue';
 
 const BATCH = config.indexerBatchSize;
 
@@ -35,7 +36,16 @@ async function processLedgerRange(start: number, end: number) {
       const txResult = await getTransaction(event.transactionHash).catch(() => null);
       const rawXdr = (txResult as any)?.envelopeXdr?.toXDR('base64') ?? '';
       const decoded = rawXdr
-        ? await decodeTransaction(rawXdr)
+        ? await decodeTransaction(rawXdr).catch(async (err) => {
+            await enqueueFailure({
+              itemType: 'transaction',
+              itemId: event.transactionHash,
+              ledger: event.ledger,
+              rawXdr,
+              error: err,
+            });
+            return { contractAddress: event.contractId, functionName: null, functionArgs: null, humanReadable: null };
+          })
         : {
             contractAddress: event.contractId,
             functionName: null,
@@ -62,7 +72,20 @@ async function processLedgerRange(start: number, end: number) {
       });
     }
 
-    const { eventType, decoded } = decodeEvent(event.topics, event.data);
+    let eventDecoded: { eventType: string; decoded: Record<string, unknown> };
+    try {
+      eventDecoded = decodeEvent(event.topics, event.data);
+    } catch (err) {
+      await enqueueFailure({
+        itemType: 'event',
+        itemId: `${event.transactionHash}-${event.topics[0] ?? '0'}`,
+        ledger: event.ledger,
+        error: err,
+        context: { topics: event.topics, data: event.data },
+      });
+      eventDecoded = { eventType: 'unknown', decoded: { raw: { topics: event.topics, data: event.data } } };
+    }
+    const { eventType, decoded: decodedEvent } = eventDecoded;
     await prisma.event.upsert({
       where: { id: `${event.transactionHash}-${event.topics[0] ?? '0'}` },
       update: {},
@@ -73,7 +96,7 @@ async function processLedgerRange(start: number, end: number) {
         eventType,
         topics: event.topics,
         data: { raw: event.data },
-        decoded: decoded as object,
+        decoded: decodedEvent as object,
         ledger: event.ledger,
         ledgerCloseTime: event.ledgerCloseTime,
       },
