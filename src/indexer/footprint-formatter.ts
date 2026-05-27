@@ -1,6 +1,5 @@
 import { SorobanDataBuilder, SorobanRpc } from '@stellar/stellar-sdk';
 
-/** Soroban Protocol-21 per-transaction limits */
 const LIMITS = {
   cpuInstructions: 100_000_000,
   memBytes: 40 * 1024 * 1024,
@@ -55,7 +54,7 @@ function metric(label: string, value: number, limit: number, unit: string): Reso
 }
 
 export function formatFootprint(
-  sim: SorobanRpc.Api.SimulateTransactionSuccessResponse
+  sim: SorobanRpc.Api.SimulateTransactionSuccessResponse,
 ): FormattedFootprint {
   const resources = (sim.transactionData as SorobanDataBuilder).build().resources();
   const display = unit === 'bytes' ? fmtBytes(value) : value.toLocaleString();

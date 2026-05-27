@@ -7,6 +7,7 @@ import { getContractAbi } from '../indexer/registry';
 import { decodeScVal } from '../indexer/args-decoder';
 import { formatFootprint } from '../indexer/footprint-formatter';
 import { generateAuthSnapshots } from '../indexer/auth-snippet-gen';
+import { parseCallTrace } from '../indexer/call-trace';
 import { xdr } from '@stellar/stellar-sdk';
 import { rpc } from '../indexer/rpc';
 import { parseInvokeHostFunction } from '../indexer/xdr-parser';
@@ -18,6 +19,31 @@ export const simulateRouter = Router();
 
 // ── Param diagnostics ─────────────────────────────────────────────────────────
 
+interface ParamDiagnostic {
+  index: number; name: string; expectedType: string;
+  providedType: string; value: unknown; issue: string;
+}
+
+const XDR_TYPE_MAP: Record<string, string[]> = {
+  address: ['scvAddress'], bool: ['scvBool'],
+  i128: ['scvI128'], u128: ['scvU128'], i64: ['scvI64'], u64: ['scvU64'],
+  i32: ['scvI32'], u32: ['scvU32'], string: ['scvString'],
+  symbol: ['scvSymbol'], bytes: ['scvBytes'], void: ['scvVoid'],
+};
+
+function detectTypeMismatch(abiType: string, xdrType: string, value: unknown): string | null {
+  const allowed = XDR_TYPE_MAP[abiType.toLowerCase()];
+  if (!allowed) return null;
+  if (!allowed.includes(xdrType))
+    return `Type mismatch: expected ${abiType} (${allowed.join('|')}) but got ${xdrType}`;
+  if (['u32','u64','u128'].includes(abiType) && typeof value === 'bigint' && value < 0n)
+    return `Value ${value} is negative but ${abiType} must be ≥ 0`;
+  return null;
+}
+
+function diagnoseArgs(
+  fnName: string, rawArgs: xdr.ScVal[],
+  abi: Awaited<ReturnType<typeof getContractAbi>>, decimals?: number,
 interface ParamDiagnostic {
   index: number;
   name: string;
@@ -70,10 +96,11 @@ function diagnoseArgs(
         issue: `Missing required argument "${param.name}" (expected ${param.type})` });
       continue;
     }
-    const mismatch = detectTypeMismatch(param.type, val.switch().name, decodeScVal(val, param, decimals).raw);
+    const decoded = decodeScVal(val, param, decimals);
+    const mismatch = detectTypeMismatch(param.type, val.switch().name, decoded.raw);
     if (mismatch)
       issues.push({ index: i, name: param.name, expectedType: param.type,
-        providedType: val.switch().name, value: decodeScVal(val, param, decimals).formatted, issue: mismatch });
+        providedType: val.switch().name, value: decoded.formatted, issue: mismatch });
   }
   if (rawArgs.length > fn.inputs.length)
     issues.push({ index: fn.inputs.length, name: '(extra)', expectedType: 'none',
@@ -183,9 +210,10 @@ function detectTypeMismatch(
  * Body: { transaction: "<base64 XDR>" }
  *
  * Proxies to Soroban RPC simulateTransaction and overlays:
- *   - On success: formatted resource footprint + recording-mode auth snapshots
- *     with copy-paste JS/Rust signing snippets.
- *   - On failure: ABI-aware per-param diagnostics.
+ *   - Resource footprint with % of protocol limits
+ *   - Chronological call-stack trace with per-event resource deltas
+ *   - Recording-mode auth snapshots with JS/Rust signing snippets
+ *   - On failure: ABI-aware per-param diagnostics
  */
 simulateRouter.post('/', async (req: Request, res: Response) => {
   const { transaction } = req.body as { transaction?: string };
@@ -213,13 +241,28 @@ simulateRouter.post('/', async (req: Request, res: Response) => {
   if (SorobanRpc.Api.isSimulationSuccess(rpcResult) || SorobanRpc.Api.isSimulationRestore(rpcResult)) {
     const footprint = formatFootprint(rpcResult);
     const authSnapshots = rpcResult.result?.auth
-      ? generateAuthSnapshots(rpcResult.result.auth)
-      : [];
-    return res.json({ status: 'success', simulation: rpcResult, footprint, authSnapshots, parsed });
+      ? generateAuthSnapshots(rpcResult.result.auth) : [];
+
+    // Build call trace from diagnostic events
+    const cpuInsns = Number((rpcResult.cost as SorobanRpc.Api.Cost)?.cpuInsns ?? 0);
+    const memBytes = Number((rpcResult.cost as SorobanRpc.Api.Cost)?.memBytes ?? 0);
+    const callTrace = parseCallTrace(
+      rpcResult.events as xdr.DiagnosticEvent[],
+      cpuInsns || undefined,
+      memBytes || undefined,
+    );
+
+    return res.json({ status: 'success', simulation: rpcResult, footprint, callTrace, authSnapshots, parsed });
   }
 
   // ── Failure — diagnostic overlay ──────────────────────────────────────────
   const rpcError = (rpcResult as SorobanRpc.Api.SimulateTransactionErrorResponse).error;
+
+  // Still parse call trace from diagnostic events on failure (partial trace)
+  const callTrace = parseCallTrace(
+    (rpcResult as SorobanRpc.Api.SimulateTransactionErrorResponse).events as xdr.DiagnosticEvent[],
+  );
+
   let paramIssues: ParamDiagnostic[] = [];
   let humanSummary = rpcError;
 
@@ -318,7 +361,6 @@ simulateRouter.post('/', async (req: Request, res: Response) => {
     ]);
 
     paramIssues = diagnoseArgs(functionName, rawArgs, abi, contract?.tokenDecimals ?? undefined);
-
     humanSummary = paramIssues.length > 0
       ? `Call to "${functionName}" on ${contract?.name ?? contractId} will fail:\n` +
         paramIssues.map((p) => `  • [arg ${p.index}] ${p.name}: ${p.issue}`).join('\n')
@@ -330,6 +372,7 @@ simulateRouter.post('/', async (req: Request, res: Response) => {
 
   return res.status(422).json({
     status: 'failed',
+    callTrace,
     diagnostics: { rpcError, contract: parsed?.contractId ?? null,
       function: parsed?.functionName ?? null, paramIssues, humanSummary },
   });
