@@ -12,10 +12,9 @@ import { protocolRouter } from './protocol';
 import { nftRouter } from './nft';
 import { alertsRouter } from './alerts';
 import { assetsRouter } from './assets';
-import { treasuryRouter } from './treasury';
-import { complianceRouter } from './compliance';
-import { taxRouter } from './tax';
-import { i18nRouter } from './i18n';
+import { sseRouter } from './sse';
+import { graphRouter } from './graph';
+import { virtualListRouter } from './virtualList';
 
 export const router = Router();
 
@@ -32,7 +31,6 @@ router.use('/protocol', protocolRouter);
 router.use('/nft', nftRouter);
 router.use('/alerts', alertsRouter);
 router.use('/assets', assetsRouter);
-router.use('/treasury', treasuryRouter);
-router.use('/compliance', complianceRouter);
-router.use('/tax', taxRouter);
-router.use('/i18n', i18nRouter);
+router.use('/sse', sseRouter);
+router.use('/graph', graphRouter);
+router.use('/virtual-list', virtualListRouter);
