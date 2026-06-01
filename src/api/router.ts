@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { searchRouter } from './search';
 import { transactionRouter } from './transactions';
 import { eventRouter } from './events';
 import { contractRouter } from './contracts';
@@ -46,3 +47,4 @@ router.use('/webhooks', webhooksRouter);
 router.use('/analytics', analyticsRouter);
 router.use('/portfolio', portfolioRouter);
 router.use('/exports', exportsRouter);
+router.use('/search', searchRouter);
