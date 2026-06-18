@@ -1917,3 +1917,224 @@ model StellarNetworkHealth {
 
   @@map("stellar_network_health")
 }
+
+model ReputationProfile {
+  id              String   @id @default(cuid())
+  address         String   @unique
+  chain           String   // soroban, stellar, ethereum, solana, cosmos, etc.
+  domain          String?  // DNS domain linked to this address
+  combinedScore   Int?     @default(0)  // 0-1000
+  sorobanScore    Int?     @default(0)
+  stellarScore    Int?     @default(0)
+  ethScore        Int?     @default(0)
+  solScore        Int?     @default(0)
+  categoryScores  Json?    // {defi_user: 750, developer: 600, validator: 0, ...}
+  signalBreakdown Json?    // [{signal: "age", weight: 0.15, score: 80}, ...]
+  categories      Json?    // ["defi_user", "developer"]
+  badgeIds        Json?    // ["verified_dev", "audited", "long_standing"]
+  lastUpdated     DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  signals         ReputationSignal[]
+  badges          ReputationBadge[]
+  attestations    Attestation[]
+  trustConnections TrustConnection[]
+  disputes        ReputationDispute[]
+  credentials     VerifiableCredential[]
+  linkedIdentities LinkedIdentity[]
+  endorsements    Endorsement[]
+}
+
+model ReputationSignal {
+  id              String   @id @default(cuid())
+  profileId       String
+  profile         ReputationProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  signalType      String   // age, tx_volume, protocol_interactions, security_history, verification_status, social_verification, community_votes
+  chain           String?
+  value           Float
+  weight          Float    @default(0.1)
+  normalizedScore Float
+  metadata        Json?
+  source          String   // onchain, offchain, community
+  verified        Boolean  @default(false)
+  recordedAt      DateTime @default(now())
+}
+
+model ReputationBadge {
+  id              String   @id @default(cuid())
+  profileId       String
+  profile         ReputationProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  badgeType       BadgeType
+  title           String
+  description     String?
+  imageUrl        String?
+  earnedAt        DateTime @default(now())
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  metadata        Json?
+}
+
+enum BadgeType {
+  verified_developer
+  audited_contract
+  long_standing
+  high_volume_trader
+  community_contributor
+  early_adopter
+  governance_participant
+  bug_bounty_hunter
+  bridge_operator
+  liquidity_provider
+}
+
+model Attestation {
+  id              String   @id @default(cuid())
+  profileId       String
+  profile         ReputationProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  uid             String   @unique
+  chainId         String
+  schemaId        String
+  attester        String
+  subject         String
+  recipient       String?
+  issuedAt        DateTime @default(now())
+  expiresAt       DateTime?
+  revoked         Boolean  @default(false)
+  signature       String?
+  transactionHash String?
+  blockNumber     Int?
+  data            Json?
+  verified        Boolean  @default(false)
+  verificationMsg String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model TrustConnection {
+  id              String   @id @default(cuid())
+  profileId       String
+  profile         ReputationProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  chainId         String
+  fromAddress     String
+  toAddress       String
+  weight          Float    @default(1.0)
+  type            String?
+  transactionHash String?
+  timestamp       DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model ReputationDispute {
+  id              String   @id @default(cuid())
+  profileId       String
+  profile         ReputationProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  challenger      String
+  respondent      String
+  challenge       String
+  evidenceHash    String
+  quorumVotes     Int
+  status          String   // open, resolved
+  outcome         String?  // upheld, rejected, timeout
+  createdAt       DateTime @default(now())
+  resolvedAt      DateTime?
+  updatedAt       DateTime @updatedAt
+  votes           ReputationDisputeVote[]
+}
+
+model ReputationDisputeVote {
+  id              String   @id @default(cuid())
+  disputeId       String
+  dispute         ReputationDispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  voter           String
+  vote            String   // uphold, reject, abstain
+  weight          Float
+  signature       String?
+  transactionHash String?
+  createdAt       DateTime @default(now())
+}
+
+model VerifiableCredential {
+  id              String   @id @default(cuid())
+  profileId       String
+  profile         ReputationProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  credentialId    String   @unique
+  context         Json     // array of contexts
+  type            Json     // array of types
+  issuer          String
+  issuanceDate    DateTime
+  expirationDate  DateTime?
+  subjectId       String
+  subjectData     Json
+  proofType       String
+  proofCreated    DateTime
+  verificationMethod String
+  proofPurpose    String
+  proofValue      String
+  createdAt       DateTime @default(now())
+}
+
+model LinkedIdentity {
+  id              String   @id @default(cuid())
+  profileId       String
+  profile         ReputationProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  chainId         String
+  address         String
+  message         String
+  signature       String
+  verified        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([profileId, chainId, address])
+}
+
+model Endorsement {
+  id              String   @id @default(cuid())
+  profileId       String
+  profile         ReputationProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  chainId         String
+  endorser        String
+  subject         String
+  weight          Float    @default(1.0)
+  timestamp       DateTime @default(now())
+  transactionHash String?
+  createdAt       DateTime @default(now())
+}
+
+model ReputationDelegation {
+  id              String   @id @default(cuid())
+  delegator       String   @unique
+  delegatee       String
+  amount          Float?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model ReputationGovernanceVote {
+  id              String   @id @default(cuid())
+  proposalId      String
+  voter           String
+  weight          Float
+  support         String   // uphold, reject, abstain
+  createdAt       DateTime @default(now())
+
+  @@unique([proposalId, voter])
+}
+
+model ReputationNft {
+  id              String   @id @default(cuid())
+  address         String
+  badgeType       String
+  tokenId         String   @unique
+  mintedTxHash    String
+  mintedAt        DateTime @default(now())
+}
+
+model RegisteredDapp {
+  id              String   @id @default(cuid())
+  name            String
+  apiKey          String   @unique
+  createdAt       DateTime @default(now())
+}
