@@ -31,7 +31,7 @@ let _stripe: StripeInstance | null = null;
 async function getStripe(): Promise<StripeInstance> {
   if (_stripe) return _stripe;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
     const Stripe = require('stripe');
     _stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', { apiVersion: '2024-04-10' });
     return _stripe;

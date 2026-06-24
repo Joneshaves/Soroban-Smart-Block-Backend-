@@ -6,7 +6,6 @@
  */
 
 import { prismaRead, prismaWrite } from '../db';
-import { logger } from '../logger';
 
 // ─── Portfolio value computation ──────────────────────────────────────────────
 

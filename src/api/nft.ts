@@ -34,8 +34,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prismaRead, prismaWrite } from '../db';
 import { asyncHandler } from '../middleware/asyncHandler';
-import { computeCollectionRarity, getItemRarityDetail, getCollectionRarityOverview } from '../services/nft-rarity-engine';
-import { analyzeCollectionWashTrading, getWashTradingAnalysis, getWashTradingLeaderboard } from '../services/nft-wash-trading';
+import { getItemRarityDetail, getCollectionRarityOverview } from '../services/nft-rarity-engine';
+import { getWashTradingAnalysis, getWashTradingLeaderboard } from '../services/nft-wash-trading';
 import { createPortfolio, getPortfolio, importPortfolioByAddress, getPortfolioActivity, getPortfolioValueHistory } from '../services/nft-portfolio-service';
 
 export const nftRouter = Router();
